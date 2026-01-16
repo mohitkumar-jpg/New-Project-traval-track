@@ -1,0 +1,283 @@
+
+# Create Clinets profile dashbord
+
+class clienst(SoftDeleteModel):
+    CLIENT_TYPES = [
+    ('corporate', 'Corporate'),
+    ('ets', 'ETS'),
+    ('spot', 'Spot'),
+    ('selfdrive', 'Self Drive'),
+]
+
+    display_name = models.CharField(max_length=200)
+    legal_company_name = models.CharField(max_length=200, blank=True, null=True)
+    client_code = models.CharField(max_length=50, unique=True)
+    client_type = models.CharField(max_length=20, choices=CLIENT_TYPES, default='corporate')
+    industry = models.CharField(max_length=200, blank=True, null=True)
+    timezone = models.CharField(max_length=100, default='Asia/Kolkata')
+    head_office_address = models.TextField(blank=True, null=True)
+    agents = models.ManyToManyField("Agent",through="CompanyAgent",related_name="companies",blank=True )
+    
+     # ✅ CENTRAL LOCATION (IMPORTANT)
+    location = GenericRelation(Location)
+    logo = models.ImageField(upload_to="company_logos/", null=True, blank=True)
+    internal_notes = models.TextField(blank=True, null=True)
+    quotation_template = models.ForeignKey(
+        "super_admin.Quotation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="template_for_companies"  # ✅ UNIQUE
+    )
+    
+    # contact 
+    primary_name=models.CharField(max_length=150,blank=True,null=True,default=""); 
+    primary_role=models.CharField(max_length=150,blank=True,null=True,default=""); 
+    primary_email=models.EmailField(blank=True,null=True,default=""); 
+    primary_phone=models.CharField(max_length=20,blank=True,null=True,default=""); 
+    billing_same_as_primary=models.BooleanField(default=False); 
+    billing_name=models.CharField(max_length=150,blank=True,null=True,default=""); 
+    billing_email=models.EmailField(blank=True,null=True,default=""); 
+    billing_phone=models.CharField(max_length=20,blank=True,null=True,default="")
+
+    # Alternate contacts (JSON)
+    alternate_contacts = models.JSONField(default=list, blank=True)
+
+   # LegalTaxInfo
+    has_gst = models.BooleanField(default=False)
+    gstin = models.CharField(max_length=50, blank=True, null=True)
+    pan_tax_id = models.CharField(max_length=50, blank=True, null=True)
+    tax_country = models.CharField(max_length=100, blank=True, null=True)
+    invoice_name_address = models.TextField(blank=True, null=True)
+    business_docs = models.FileField(upload_to="business_docs/", blank=True, null=True)
+    tds_applicable = models.BooleanField(default=False)
+    tds_percentage = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+
+
+# BillingRule
+
+    BILLING_CYCLE_CHOICES = (
+        ("monthly", "Monthly"),
+        ("quarterly", "Quarterly"),
+        ("yearly", "Yearly"),
+    )
+    
+    billing_cycle = models.CharField(
+        max_length=20,
+        choices=BILLING_CYCLE_CHOICES,
+        default="monthly"
+    )
+
+    invoice_due_days = models.IntegerField(default=30)
+  
+    # 🔹 Slab based billing
+    slab_rate = models.ForeignKey(
+        SlabRate,
+        on_delete=models.PROTECT,
+        related_name="billing_rules"
+    )
+
+   
+    auto_hold_overdue = models.BooleanField(default=False)
+    auto_hold_days = models.IntegerField(blank=True, null=True)
+
+    invoice_pattern = models.CharField(max_length=100, default="INV-{FY}-{COMP}-{ID}", help_text="Allowed: {FY}, {YYYY}, {YY}, {MM}, {COMP}, {ID}" )
+
+    default_tax_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        blank=True,
+        null=True
+    )
+
+# ContractDocument
+
+    contract_file = models.FileField(upload_to="contracts/", blank=True, null=True)
+    contract_start_date = models.DateField(blank=True, null=True)
+    contract_end_date = models.DateField(blank=True, null=True)
+    auto_renew = models.BooleanField(default=False)
+    terms_conditions = models.TextField(blank=True, null=True)
+    
+    def delete(self, user=None, *args, **kwargs):
+        for loc in self.location.all():
+            loc.delete(user=user)
+        super().delete(user=user)
+
+    def hard_delete(self):
+        for loc in self.location.all():
+            loc.hard_delete()
+        super().hard_delete()
+   
+
+    def __str__(self):
+        return f"display_name"
+
+
+
+
+Super Admin ek software profide comapny apni branch bnaye is ke apnu branch hogi
+   ↓
+Branch  manage  apne empyee ko apne anur asses dega jo manage kr sakte hai branch se hi clients ko apne corporate , ets , sport rental , self derive dashnord penal jo client app me bnage
+   ↓
+Clients
+   ↓
+Client Dashboards (type-wise)
+  ↓
+Clients admin fir apne emplyee ya staff ko permision dega 
+
+
+ab muje super admi se client tak  backend code bnana hai permistion assses ka 
+
+
+
+
+SUPER ADMIN (Software Company)
+│
+├── Branches (Delhi, Jaipur, Mumbai…)
+│     │
+│     ├── Branch Users (staff / support)
+│     │
+│     └── Clients create karta hai (Corporate / ETS / Spot / SelfDrive)
+│             │
+│             └── Client ka apna Dashboard
+│                     │
+│                     ├── Client Admin
+│                     └── Client Staff
+
+
+
+
+from django.conf.urls.static import static
+from django.conf import settings
+from django.urls import path
+from . import views
+
+# API views (NO serializer)
+from dashboards.branch.api.branch_api import BranchCreateAPI
+from dashboards.branch.api.branch_permission_api import BranchPermissionAPI
+from dashboards.clients.api.client_create import ClientCreateAPI
+from dashboards.clients.api.client_user_api import ClientUserCreateAPI
+from dashboards.clients.api.client_permission_api import ClientPermissionAPI
+from dashboards.common.api.sidebar_api import SidebarAPI
+from dashboards.users.api.login import LoginAPI
+
+app_name = "super_admin"
+
+urlpatterns = [
+
+    # =========================
+    # 🔐 AUTH
+    # =========================
+    path("", views.dashboard_home, name="dashboard_home"),
+    path("login/", views.login_view, name="login"),
+    path("logout/", views.logout_view, name="logout"),
+    path("forgot-password/", views.forgot_password, name="forgot_password"),
+    path("reset/<uidb64>/<token>/", views.reset_password, name="reset_password"),
+
+    # screen lock
+    path("lock/", views.lock_screen, name="lock_screen"),
+    path("unlock/", views.unlock_screen, name="unlock_screen"),
+
+    # =========================
+    # 👤 PROFILE
+    # =========================
+    path("my-profile/", views.my_profile, name="my_profile"),
+
+    # =========================
+    # 🏢 BRANCH (WEB)
+    # =========================
+    path("branches/", views.branch_list, name="branch_list"),
+    path("branches/create/", views.branch_create, name="branch_create"),
+    path("branches/<int:pk>/edit/", views.branch_update, name="branch_update"),
+    path("branches/<int:pk>/toggle/", views.branch_toggle_status, name="branch_toggle"),
+    path("branches/<int:pk>/delete/", views.branch_delete, name="branch_delete"),
+    path(
+        "permissions/branch-admin/<int:user_id>/",
+        views.assign_branch_permissions,
+        name="assign_branch_permissions"
+    ),
+
+    # =========================
+    # 🏢 BRANCH (API – NO SERIALIZER)
+    # =========================
+    path("api/login/", LoginAPI.as_view(), name="api_login"),
+    path("api/branch/create/", BranchCreateAPI.as_view(), name="api_branch_create"),
+    path("api/branch/permission/", BranchPermissionAPI.as_view(), name="api_branch_permission"),
+
+    # =========================
+    # 🧑‍💼 EMPLOYEE
+    # =========================
+    path("employees/", views.employee_list, name="employee_list"),
+    path("employees/add/", views.employee_save, name="employee_add"),
+    path("employees/<int:pk>/edit/", views.employee_save, name="employee_edit"),
+    path("employees/<int:pk>/delete/", views.employee_delete, name="employee_delete"),
+    path("employees/<int:pk>/", views.employee_detail, name="employee_detail"),
+
+    # EXPORT / IMPORT
+    path("employees/export/excel/", views.employee_export_excel),
+    path("employees/export/pdf/", views.employee_export_pdf),
+    path("employees/export/selected/", views.employee_export_selected),
+    path("employees/import/excel/", views.employee_import_excel),
+    path("employees/sample/excel/", views.employee_sample_excel),
+    path("employees/next-id/", views.employee_next_id),
+    path("attendance/", views.employee_attendance),
+
+    # =========================
+    # 💰 SALARY
+    # =========================
+    path("salary/", views.salary_list),
+    path("salary/generate/", views.salary_generate),
+    path("salary/<int:pk>/", views.salary_detail),
+    path("salary/<int:pk>/edit/", views.salary_edit),
+    path("salary/<int:pk>/delete/", views.salary_delete),
+    path("salary/<int:pk>/pdf/", views.salary_slip_pdf),
+    path("salary/export/csv/", views.salary_export_csv),
+    path("salary/export/pdf/", views.salary_bulk_pdf),
+
+    # =========================
+    # 📦 SLAB
+    # =========================
+    path("slabs/", views.slab_rate_list),
+    path("slabs/create/", views.slab_rate_create_edit),
+    path("slabs/<int:pk>/edit/", views.slab_rate_create_edit),
+    path("slabs/<int:pk>/delete/", views.slab_rate_delete),
+    path("slabs/create-ajax/", views.slab_rate_create_ajax),
+
+    # =========================
+    # 🏢 CLIENT (WEB)
+    # =========================
+    path("clients/", views.company_list),
+    path("clients/add/", views.create_company),
+    path("clients/<int:company_id>/edit/", views.create_company),
+    path("clients/<int:id>/view/", views.view_client),
+    path("clients/<int:id>/pdf/", views.company_pdf),
+
+    # =========================
+    # 🏢 CLIENT (API – NO SERIALIZER)
+    # =========================
+    path("api/client/create/", ClientCreateAPI.as_view()),
+    path("api/client/user/create/", ClientUserCreateAPI.as_view()),
+    path("api/client/permission/", ClientPermissionAPI.as_view()),
+    path("api/sidebar/", SidebarAPI.as_view()),
+
+    # =========================
+    # 📑 QUOTATIONS
+    # =========================
+    path("quotations/", views.quotation_list),
+    path("quotations/create/", views.quotation_create),
+    path("quotations/<int:pk>/edit/", views.quotation_edit),
+    path("quotations/<int:pk>/delete/", views.quotation_delete),
+    path("quotations/<int:pk>/followup/", views.quotation_followup_create),
+    path("quotations/<int:pk>/followups/", views.quotation_followup_history),
+    path("quotations/<int:pk>/pdf/", views.quotation_pdf),
+    path("quotations/<int:pk>/detail/", views.quotation_detail),
+
+    # =========================
+    # 📦 ASSETS / INVENTORY / EXPENSE / ADVANCE
+    # =========================
+    path("assets/", views.asset_list),
+    path("inventory/", views.inventory_list),
+    path("expenses/", views.expense_list),
+    path("advance/", views.advance_list),
+
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
